@@ -14,6 +14,7 @@ import java.net.URI;
 import java.time.Instant;
 import com.example.MusicApi.exception.ResourceNotFoundException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.validation.BindingResult;
 
 import java.util.List;
 import java.util.HashMap;
@@ -38,22 +39,43 @@ public class ArtistController {
 
     @GetMapping("/{id}")
     public ResponseEntity<Artist> getArtistById(@PathVariable Long id) {
-        return artistService.getArtistById(id)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+        Artist artist = artistService.getArtistById(id);
+        return ResponseEntity.ok(artist);
     }
 
     @PostMapping
-    public ResponseEntity<Artist> createArtist(@Valid @RequestBody Artist artist) {
+    public ResponseEntity<?> createArtist(@Valid @RequestBody Artist artist, BindingResult bindingResult) {
+        if (bindingResult.hasErrors()) {
+            Map<String, String> fieldErrors = new HashMap<>();
+            for (FieldError error : bindingResult.getFieldErrors()) {
+                fieldErrors.put(error.getField(), error.getDefaultMessage());
+            }
+            ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                    HttpStatus.BAD_REQUEST,
+                    "La solicitud contiene errores de validación."
+            );
+            problemDetail.setTitle("Error de Validación");
+            problemDetail.setType(URI.create("http://localhost:8080/errors/validation"));
+            problemDetail.setProperty("timestamp", Instant.now());
+            problemDetail.setProperty("fieldErrors", fieldErrors);
+            return ResponseEntity.of(problemDetail).build();
+        }
         return new ResponseEntity<>(artistService.createArtist(artist), HttpStatus.CREATED);
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Artist> updateArtist(@PathVariable Long id, @RequestBody Artist artist) {
+    public ResponseEntity<?> updateArtist(@PathVariable Long id, @RequestBody Artist artist) {
         try {
             return ResponseEntity.ok(artistService.updateArtist(id, artist));
-        } catch (RuntimeException e) {
-            return ResponseEntity.notFound().build();
+        } catch (ResourceNotFoundException e) {
+            ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                    HttpStatus.NOT_FOUND,
+                    "El artista que intentas actualizar no existe."
+            );
+            problemDetail.setTitle("Recurso no encontrado");
+            problemDetail.setType(URI.create("http://localhost:8080/errors/not-found"));
+            problemDetail.setProperty("timestamp", Instant.now());
+            return ResponseEntity.of(problemDetail).build();
         }
     }
 
@@ -96,10 +118,8 @@ public class ArtistController {
                 "Ya existe un artista con este nombre. Por favor, use un nombre diferente."
         );
         problemDetail.setTitle("Conflicto de datos");
-        problemDetail.setType(URI.create("http://localhost:8080/errors/duplicate-resource")); // URI de ejemplo
+        problemDetail.setType(URI.create("http://localhost:8080/errors/duplicate-resource"));
         problemDetail.setProperty("timestamp", Instant.now());
-
-
         return ResponseEntity.of(problemDetail).build();
     }
 
@@ -107,33 +127,23 @@ public class ArtistController {
     public ResponseEntity<ProblemDetail> handleResourceNotFoundException(ResourceNotFoundException ex) {
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
                 HttpStatus.NOT_FOUND,
-                ex.getMessage()
+                "El artista que buscas no existe."
         );
         problemDetail.setTitle("Recurso no encontrado");
         problemDetail.setType(URI.create("http://localhost:8080/errors/not-found"));
         problemDetail.setProperty("timestamp", Instant.now());
-
         return ResponseEntity.of(problemDetail).build();
     }
 
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ProblemDetail> handleValidationExceptions(MethodArgumentNotValidException ex) {
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ProblemDetail> handleGeneralException(Exception ex) {
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.BAD_REQUEST,
-                "La solicitud contiene errores de validación."
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "Ha ocurrido un error en el servidor. Por favor, inténtalo de nuevo más tarde."
         );
-        problemDetail.setTitle("Error de Validación");
-        problemDetail.setType(URI.create("http://localhost:8080/errors/validation"));
+        problemDetail.setTitle("Error de Servidor");
+        problemDetail.setType(URI.create("http://localhost:8080/errors/server-error"));
         problemDetail.setProperty("timestamp", Instant.now());
-
-        Map<String, String> fieldErrors = new HashMap<>();
-        ex.getBindingResult().getAllErrors().forEach((error) -> {
-            String fieldName = ((FieldError) error).getField();
-            String errorMessage = error.getDefaultMessage();
-            fieldErrors.put(fieldName, errorMessage);
-        });
-        problemDetail.setProperty("fieldErrors", fieldErrors);
-
         return ResponseEntity.of(problemDetail).build();
     }
 } 

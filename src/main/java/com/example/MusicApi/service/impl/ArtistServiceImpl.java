@@ -28,8 +28,9 @@ public class ArtistServiceImpl implements ArtistService {
     }
 
     @Override
-    public Optional<Artist> getArtistById(Long id) {
-        return artistRepository.findByIdArtistAndIsDeletedFalse(id);
+    public Artist getArtistById(Long id) throws ResourceNotFoundException {
+        return artistRepository.findByIdArtistAndIsDeletedFalse(id)
+                .orElseThrow(() -> new ResourceNotFoundException("El artista que buscas no existe."));
     }
 
     @Override
